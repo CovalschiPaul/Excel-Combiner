@@ -1,0 +1,68 @@
+# Base44 dev/preview stack for the Excel Combiner desktop application.
+#
+# The project is a single Tkinter GUI script, so it is run as a real desktop
+# session inside the container (Xvfb + openbox) and streamed to the browser
+# preview with x11vnc + noVNC. Host port 3000 -> websockify/noVNC (6080).
+#
+#   docker compose -f docker-compose.base44.yml up -d --build
+#
+# Source is bind-mounted read-only at /app; the working directory /workspace is
+# writable so the app's log file and the user's combined .xlsx output never
+# land in the repository.
+services:
+  excel-combiner:
+    build:
+      context: .
+      dockerfile: Dockerfile.base44
+    working_dir: /workspace
+    ports:
+      - "3000:6080"
+    volumes:
+      - ./:/app:ro
+    environment:
+      - DISPLAY=:99
+      - BASE44_PREVIEW_MODE
+    command:
+      - sh
+      - -ec
+      - |
+        # Root of the web entry point -> noVNC viewer with autoconnect.
+        install -m 0644 /app/preview/index.html /usr/share/novnc/index.html
+
+        # Virtual display + window manager. Stale lock/socket files from a
+        # previous run of this container make Xvfb refuse to start, so clear
+        # them, then wait until the display really answers before using it.
+        rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
+        Xvfb :99 -screen 0 1280x900x24 -nolisten tcp >/workspace/xvfb.log 2>&1 &
+        for i in $(seq 1 100); do
+          DISPLAY=:99 xdotool getdisplaygeometry >/dev/null 2>&1 && break
+          sleep 0.2
+        done
+        DISPLAY=:99 xdotool getdisplaygeometry >/dev/null 2>&1 || {
+          echo "Xvfb :99 did not come up"; cat /workspace/xvfb.log; exit 1;
+        }
+        openbox --sm-disable >/workspace/openbox.log 2>&1 &
+
+        # The application itself (no live reload: restart to pick up edits)
+        /opt/venv/bin/python /app/excel_combiner_gui.py >/workspace/app.log 2>&1 &
+
+        # Desktop stream for the browser preview
+        x11vnc -display :99 -forever -shared -nopw -nolookup -rfbport 5900 \
+          >/workspace/x11vnc.log 2>&1 &
+
+        exec websockify --web /usr/share/novnc 6080 127.0.0.1:5900
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -o /dev/null http://127.0.0.1:6080/vnc.html
+          || { echo "noVNC web entry point is not responding"; exit 1; };
+          pgrep -f excel_combiner_gui.py >/dev/null
+          || { echo "Excel Combiner GUI process is not running"; exit 1; };
+          pgrep -f 'Xvfb :99' >/dev/null
+          || { echo "Xvfb virtual display is not running"; exit 1; }
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    restart: on-failure

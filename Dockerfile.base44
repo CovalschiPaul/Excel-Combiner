@@ -1,0 +1,36 @@
+# Run image for the Excel Combiner desktop GUI, exposed in the browser preview
+# through Xvfb -> x11vnc -> noVNC (websockify on port 6080).
+#
+# The application source is NOT baked into this image: it is bind-mounted from
+# the repository at run time (see docker-compose.base44.yml), so edits to
+# excel_combiner_gui.py take effect on restart without rebuilding.
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    DISPLAY=:99 \
+    VENV=/opt/venv
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-venv \
+        python3-tk \
+        xvfb \
+        x11vnc \
+        openbox \
+        novnc \
+        websockify \
+        xdotool \
+        fonts-dejavu-core \
+        curl \
+        procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencies live only in the image. --system-site-packages keeps the
+# distribution's _tkinter (python3-tk) importable from the virtualenv.
+RUN python3 -m venv --system-site-packages "$VENV"
+
+COPY requirements.txt /tmp/requirements.txt
+RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
+
+EXPOSE 6080
+WORKDIR /workspace

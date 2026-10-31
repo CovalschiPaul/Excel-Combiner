@@ -21,6 +21,11 @@ class ExcelCombinerApp:
         self.template_file_var = tk.StringVar()
         self.output_file_var = tk.StringVar()
 
+        # Single background worker for the combination run. It must outlive the
+        # click handler so the main thread stays free to service the worker's
+        # Tk calls (status/progress updates and the success dialog).
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
         # Start main application window
         self.start_main_app()
 
@@ -164,8 +169,7 @@ class ExcelCombinerApp:
 
         self.update_status("Processing...")
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            executor.submit(self.process_combination, input_directory, template_file, output_file)
+        self.executor.submit(self.process_combination, input_directory, template_file, output_file)
 
     def process_combination(self, input_directory: str, template_file: str, output_file: str):
         """Process the combination in a separate thread."""

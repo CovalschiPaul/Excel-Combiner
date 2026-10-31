@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Excel Combiner</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #2b2b2b;
+        font-family: system-ui, sans-serif;
+      }
+      #screen {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      #status {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        padding: 10px 16px;
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.75);
+        color: #fff;
+        font-size: 13px;
+        letter-spacing: 0.2px;
+        pointer-events: none;
+      }
+      #status[hidden] {
+        display: none;
+      }
+    </style>
+
+    <script type="module" crossorigin="anonymous">
+      // Minimal noVNC viewer for the Excel Combiner desktop session.
+      // The whole page is served by websockify from noVNC's web root, so the
+      // VNC websocket lives at the same origin under /websockify.
+      import RFB from "./core/rfb.js";
+
+      const screenEl = document.getElementById("screen");
+      const statusEl = document.getElementById("status");
+
+      function status(text) {
+        statusEl.textContent = text;
+        statusEl.hidden = false;
+      }
+
+      function websocketUrl() {
+        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        return `${protocol}://${window.location.host}/websockify`;
+      }
+
+      let rfb = null;
+
+      function connect() {
+        if (rfb) return;
+        status("Connecting to Excel Combiner…");
+        rfb = new RFB(screenEl, websocketUrl(), { credentials: {} });
+        rfb.scaleViewport = true;
+        rfb.showDotCursor = true;
+
+        rfb.addEventListener("connect", () => (statusEl.hidden = true));
+        rfb.addEventListener("desktopname", () => (statusEl.hidden = true));
+        rfb.addEventListener("disconnect", (e) => {
+          rfb = null;
+          status(e.detail.clean ? "Disconnected" : "Connection lost — reconnecting…");
+          if (!e.detail.clean) setTimeout(connect, 2000);
+        });
+        rfb.addEventListener("securityfailure", (e) => {
+          rfb = null;
+          status("VNC security failure: " + (e.detail && e.detail.reason));
+        });
+      }
+
+      connect();
+    </script>
+  </head>
+
+  <body>
+    <div id="screen"></div>
+    <div id="status">Loading Excel Combiner…</div>
+  </body>
+</html>
